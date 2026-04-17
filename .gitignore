@@ -1,0 +1,47 @@
+# =============================================================================
+# .gitignore — aiDAQ
+# =============================================================================
+# Git will NOT track any of these files/directories.
+# Critical: *.ibt files can be 50-200 MB and must never enter the repo.
+
+# ── iRacing data files ────────────────────────────────────────────────────
+*.ibt           # raw iRacing telemetry (NEVER commit — too large)
+*.parquet       # processed session files (regenerate from .ibt locally)
+
+# ── Python cache ─────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# ── Virtual environments ──────────────────────────────────────────────────
+venv/
+.venv/
+env/
+.env/
+
+# ── Environment / secrets ─────────────────────────────────────────────────
+.env            # never commit API keys or secrets
+*.env
+
+# ── IDE / editor files ────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.code-workspace
+
+# ── OS files ──────────────────────────────────────────────────────────────
+.DS_Store       # macOS
+Thumbs.db       # Windows
+
+# ── Build / packaging ────────────────────────────────────────────────────
+dist/
+build/
+*.egg-info/
+*.spec
+
+# ── Logs and temp files ───────────────────────────────────────────────────
+*.log
+*.csv           # telemetry CSVs from the old matplotlib version
+tmp/
+temp/
