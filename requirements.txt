@@ -12,7 +12,9 @@ pyarrow>=14.0.0         # required by polars for Parquet read/write
 numpy>=1.24.0           # numerical operations (used in physics.py)
 
 # ── Dash / Plotly UI ───────────────────────────────────────────────────────
-dash>=2.14.0            # web app framework (includes dcc, html, callback)
+dash>=2.14.0,<3.0.0     # pin to 2.x: Dash 4.x imports Jupyter comm at startup and
+                        # raises NotImplementedError outside a Jupyter kernel (known bug)
+comm<0.2.0              # secondary pin for safety
 dash-bootstrap-components>=1.5.0   # dark theme, layout grid, card components
 plotly>=5.18.0          # interactive chart library
 
