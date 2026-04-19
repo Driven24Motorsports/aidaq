@@ -48,13 +48,14 @@ import polars as pl
 
 from config import (
     DEPLOYMENT_MODE,
-    VAR,                    # re-exported from physics via config shortcut
-    REQUIRED_VARS,
-    OPTIONAL_VARS,
     TRACK_F_INIT, TRACK_R_INIT,
     AX_MAX_DEFAULT, AY_MAX_DEFAULT,
     EPSILON,
 )
+
+# VAR, REQUIRED_VARS, OPTIONAL_VARS live in physics.py (not config.py).
+# They are iRacing channel name mappings — physics knowledge, not config.
+from physics import VAR, REQUIRED_VARS, OPTIONAL_VARS
 
 # physics module provides all the maths
 import physics as phys
