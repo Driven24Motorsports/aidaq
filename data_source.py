@@ -36,6 +36,7 @@
 
 import io
 import base64
+import json
 import math
 import threading
 import collections
@@ -95,6 +96,34 @@ FRAME_COLUMNS = [
     'LRwheelSpeed',
     'RRwheelSpeed',
 ]
+
+
+# =============================================================================
+# _IBTFrameAccessor — thin wrapper so IBT frame looks like IRSDK subscript
+# =============================================================================
+
+class _IBTFrameAccessor:
+    """Makes a single irsdk.IBT frame at index `i` behave like IRSDK[key].
+
+    This lets the existing per-frame code (ir['Speed'], etc.) and physics
+    helpers (phys.update_track_widths(ir, ...)) work unchanged when reading
+    from an IBT file rather than the live IRSDK shared-memory buffer.
+
+    ibt.get(i, key) returns None when the channel is absent; we convert that
+    to float('nan') so downstream float() casts don't raise TypeError.
+    """
+    __slots__ = ('_ibt', '_i')
+
+    def __init__(self, ibt, i):
+        self._ibt = ibt
+        self._i   = i
+
+    def __getitem__(self, key):
+        v = self._ibt.get(self._i, key)
+        return float('nan') if v is None else v
+
+    def __contains__(self, key):
+        return key in self._ibt._var_headers_dict
 
 
 # =============================================================================
@@ -345,14 +374,19 @@ class DataSource:
         -------
         pl.DataFrame  or  None on error
         """
-        ir = irsdk.IRSDK()
+        # Use irsdk.IBT — the correct pyirsdk 1.3.5 API for .ibt file iteration.
+        # (irsdk.IRSDK.parse_to() now requires a to_file path arg and dumps a
+        # text snapshot; it no longer advances frames one-by-one.)
+        ir = irsdk.IBT()
         try:
-            ir.startup(test_file=file_path)
+            ir.open(file_path)
         except Exception as e:
-            print(f'irsdk failed to open {file_path}: {e}', flush=True)
+            print(f'irsdk IBT failed to open {file_path}: {e}', flush=True)
             return None
 
-        telemetry_vars = phys.get_telemetry_var_names(ir)
+        # IBT exposes channel names through _var_headers_dict (dict keyed by name)
+        telemetry_vars = set(ir._var_headers_dict.keys())
+        n_frames = ir._disk_header.session_record_count
         rows = []
 
         # Create per-session median filters (isolated from live-mode filters)
@@ -367,13 +401,13 @@ class DataSource:
         last_time = None
 
         try:
-            # Iterate through all frames in the file
-            # ir.parse_to() advances one frame; loop until end of file
-            while ir.parse_to():
+            # Iterate frame-by-frame using IBT.get(index, key).
+            # _IBTFrameAccessor wraps IBT so existing ir[key] code is unchanged.
+            for i in range(n_frames):
+                accessor = _IBTFrameAccessor(ir, i)
                 row = {}
-                t = None
                 try:
-                    t = float(ir['SessionTime'])
+                    t = float(accessor['SessionTime'])
                 except Exception:
                     continue
 
@@ -386,7 +420,7 @@ class DataSource:
                 for col in FRAME_COLUMNS[1:]:
                     if col in telemetry_vars:
                         try:
-                            row[col] = float(ir[col])
+                            row[col] = float(accessor[col])
                         except Exception:
                             row[col] = float('nan')
                     else:
@@ -412,7 +446,7 @@ class DataSource:
                 u = row.get('Speed', 0.0)
                 r = row.get('YawRate', 0.0)
                 tf_new, tr_new = phys.update_track_widths(
-                    ir, u, r, telemetry_vars, f_filt, r_filt)
+                    accessor, u, r, telemetry_vars, f_filt, r_filt)
                 if tf_new is not None:
                     tf, tr = tf_new, tr_new
                 row['TrackWidth_F'] = tf
@@ -424,7 +458,7 @@ class DataSource:
             print(f'Error during .ibt parsing: {e}', flush=True)
         finally:
             try:
-                ir.shutdown()
+                ir.close()
             except Exception:
                 pass
 
@@ -640,7 +674,10 @@ class DataSource:
             df = self._session_df
         if df is None:
             return None
-        return df.write_json(row_oriented=True)
+        # Polars 1.x removed the `row_oriented` kwarg from write_json().
+        # to_dicts() produces a list of row dicts; json.dumps gives a JSON string.
+        # fill_nan(None) converts float NaN → JSON null (JSON has no NaN literal).
+        return json.dumps(df.fill_nan(None).to_dicts())
 
     @staticmethod
     def df_from_json(json_str):
@@ -657,7 +694,8 @@ class DataSource:
         if not json_str:
             return None
         try:
-            return pl.read_json(json_str.encode())
+            # Companion to df_to_json(): list-of-dicts JSON → Polars DataFrame.
+            return pl.from_dicts(json.loads(json_str))
         except Exception as e:
             print(f'df_from_json error: {e}', flush=True)
             return None
