@@ -151,6 +151,13 @@ class DataSource:
         self._thread      = None
         self._running     = False
 
+        # Live-mode position dead-reckoning state.
+        # Reset each time set_live() / stop_live() is called so the track map
+        # always starts from (0, 0) at the beginning of a new live session.
+        self._live_pos_x    = 0.0
+        self._live_pos_y    = 0.0
+        self._live_last_time = None
+
     # -------------------------------------------------------------------------
     # PUBLIC API
     # -------------------------------------------------------------------------
@@ -226,6 +233,10 @@ class DataSource:
         self._running = False
         if self._thread:
             self._thread.join(timeout=2.0)
+        # Reset dead-reckoning so the next live session starts from (0, 0).
+        self._live_pos_x     = 0.0
+        self._live_pos_y     = 0.0
+        self._live_last_time = None
 
     def _live_poll_loop(self):
         """Background thread: connect to iRacing and push frames to deque.
@@ -297,6 +308,22 @@ class DataSource:
                         frame[col] = float('nan')
                 else:
                     frame[col] = float('nan')
+
+            # ---- Dead-reckoning position (mirrors _parse_ibt_file logic) ----
+            # Integrate speed × heading to grow the live track map the same way
+            # file-mode sessions do.  Starts at (0, 0) when live mode begins.
+            yaw_n = frame.get('YawNorth', float('nan'))
+            spd   = frame.get('Speed',    float('nan'))
+            if (self._live_last_time is not None
+                    and math.isfinite(yaw_n)
+                    and math.isfinite(spd)):
+                dt = t - self._live_last_time
+                if 0 < dt < 0.5:   # ignore gaps (pauses, session reloads)
+                    self._live_pos_x += spd * math.sin(yaw_n) * dt
+                    self._live_pos_y += spd * math.cos(yaw_n) * dt
+            self._live_last_time = t
+            frame['PosX'] = self._live_pos_x
+            frame['PosY'] = self._live_pos_y
 
             return frame
         except Exception:

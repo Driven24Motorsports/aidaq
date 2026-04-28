@@ -604,6 +604,15 @@ def cb_fig_track(selected_laps, cursor, session_json):
     if not selected_laps:
         return _empty_figure('Select at least one lap.')
 
+    # Guard: PosX/PosY are only present after file-mode parsing or once live
+    # dead-reckoning has produced at least one frame with position data.
+    if 'PosX' not in df.columns or 'PosY' not in df.columns:
+        return _empty_figure(
+            'Track position data (PosX / PosY) not available yet.\n'
+            'Upload a session file for an instant map, or wait a moment '
+            'for live position to initialise.'
+        )
+
     # Palette for lap traces (cycles if more laps than colours)
     COLORS = ['#4cc9f0', '#f72585', '#7209b7', '#3a0ca3',
               '#4361ee', '#4cc9f0', '#560bad', '#480ca8']
@@ -1096,7 +1105,7 @@ def cb_live_update(n, session_json):
         existing = DataSource.df_from_json(session_json)
         if existing is not None:
             # Append new row (keep last N rows to avoid unlimited growth)
-            combined = pl.concat([existing, new_row], how='diagonal')
+            combined = pl.concat([existing, new_row], how='diagonal_relaxed')
             MAX_LIVE_ROWS = 100_000
             if len(combined) > MAX_LIVE_ROWS:
                 combined = combined.tail(MAX_LIVE_ROWS)
